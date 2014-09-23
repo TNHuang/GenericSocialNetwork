@@ -93,17 +93,23 @@ class User
     result[0].values[0]
   end
 
+
   def save
     if @id.nil?
       self.create
     else
-      QuestionsDatabase.instance.execute(<<-SQL, self.id, self.fname, self.lname, self.id)
+      col_names  = self.instance_variables.
+      map {|var| var.to_s.tr(':@', '')}.
+      map {|c| "#{c} = (?)"}.join(',')
+      values = self.instance_variables.map do |var_name|
+        instance_variable_get(var_name.to_s)
+      end
+
+      QuestionsDatabase.instance.execute(<<-SQL, *values, self.id)
         UPDATE
           users
         SET
-          id = (?),
-          fname = (?),
-          lname = (?)
+        #{col_names}
         WHERE
           id = (?)
         SQL
@@ -422,6 +428,8 @@ class Reply
     if @id.nil?
       self.create
     else
+
+
       QuestionsDatabase.instance.execute(<<-SQL, id, body, question_id, user_id, reply_id, self.id)
         UPDATE
           replies
