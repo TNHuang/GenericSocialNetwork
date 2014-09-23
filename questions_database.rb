@@ -74,6 +74,42 @@ class User
   def followed_questions
     QuestionFollower.followed_questions_for_user_id(self.id)
   end
+
+  def liked_questions
+    QuestionLike::liked_questions_for_user_id(self.id)
+  end
+
+  def average_karma
+    result = QuestionsDatabase.instance.execute(<<-SQL, self.id)
+    SELECT
+      CAST( COUNT(question_likes.id) AS FLOAT)/
+      CAST( COUNT( DISTINCT(questions.id)) AS FLOAT)
+    FROM
+      questions LEFT OUTER JOIN question_likes
+      ON questions.id = question_likes.question_id
+    WHERE
+      questions.user_id = (?)
+    SQL
+    result[0].values[0]
+  end
+
+  def save
+    if @id.nil?
+      self.create
+    else
+      QuestionsDatabase.instance.execute(<<-SQL, self.id, self.fname, self.lname, self.id)
+        UPDATE
+          users
+        SET
+          id = (?),
+          fname = (?),
+          lname = (?)
+        WHERE
+          id = (?)
+        SQL
+    end
+  end
+
 end
 
 
@@ -159,6 +195,36 @@ class Question
     QuestionFollower::most_followed_questions(n)
   end
 
+  def likers
+    QuestionLike::likers_for_question_id(self.id)
+  end
+
+  def num_likes
+    QuestionLike::num_likes_for_question_id(self.id)
+  end
+
+  def most_liked(n)
+    QuestionLike.most_liked_questions(n)
+  end
+
+  def save
+    if @id.nil?
+      self.create
+    else
+      QuestionsDatabase.instance.execute(<<-SQL, id, title, body, user_id, self.id)
+        UPDATE
+          questions
+        SET
+          id = (?),
+          title = (?),
+          body = (?),
+          user_id = (?)
+        WHERE
+          id = (?)
+        SQL
+    end
+  end
+
 end
 
 
@@ -240,6 +306,24 @@ class QuestionFollower
     SQL
     results.map{|result| Question.new(result)}
   end
+
+  def save
+    if @id.nil?
+      self.create
+    else
+      QuestionsDatabase.instance.execute(<<-SQL, id, user_id, question_id, self.id)
+        UPDATE
+          question_followers
+        SET
+          id = (?),
+          user_id = (?),
+          question_id = (?)
+        WHERE
+          id = (?)
+        SQL
+    end
+  end
+
 end
 
 class Reply
@@ -334,6 +418,25 @@ class Reply
     results.map { |result| Reply.new(result) }
   end
 
+  def save
+    if @id.nil?
+      self.create
+    else
+      QuestionsDatabase.instance.execute(<<-SQL, id, body, question_id, user_id, reply_id, self.id)
+        UPDATE
+          replies
+        SET
+          id = (?),
+          body = (?),
+          question_id = (?),
+          user_id = (?),
+          reply_id = (?)
+        WHERE
+          id = (?)
+        SQL
+    end
+  end
+
 end
 
 
@@ -375,7 +478,7 @@ class QuestionLike
     QuestionLike.new(result[0])
   end
 
-  def self.likers_for_question(question_id)
+  def self.likers_for_question_id(question_id)
     results = QuestionsDatabase.instance.execute(<<-SQL, question_id)
     SELECT DISTINCT
       users.id, fname, lname
@@ -383,7 +486,7 @@ class QuestionLike
       question_likes AS ql INNER JOIN users
       ON ql.user_id = users.id
     WHERE
-      q.question_id = (?)
+      ql.question_id = (?)
     SQL
     results.map{|result| User.new(result)}
   end
@@ -396,9 +499,39 @@ class QuestionLike
       question_likes AS ql INNER JOIN questions
       ON ql.question_id = questions.id
     WHERE
-      q.question_id = (?)
+      ql.question_id = (?)
     SQL
-    result[0].value
+    result[0].values[0]
   end
+
+  def self.liked_questions_for_user_id(user_id)
+      results = QuestionsDatabase.instance.execute(<<-SQL, user_id)
+      SELECT
+        questions.id, title, body, questions.user_id
+      FROM
+        question_likes AS ql INNER JOIN questions
+        ON ql.question_id = questions.id
+      WHERE
+        ql.user_id = (?)
+      SQL
+      results.map{|result| Question.new(result)}
+  end
+
+  def self.most_liked_questions(n)
+    results = QuestionsDatabase.instance.execute(<<-SQL, n)
+    SELECT
+      questions.id, title, body, questions.user_id
+    FROM
+       questions LEFT OUTER JOIN question_likes AS ql
+      ON ql.question_id = questions.id
+    GROUP BY
+      questions.id
+    Order BY COUNT(*) DESC
+    LIMIT (?)
+    SQL
+    results.map{|result| Question.new(result)}
+  end
+
+
 end
 
